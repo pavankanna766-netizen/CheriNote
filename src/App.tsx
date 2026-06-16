@@ -37,6 +37,7 @@ export default function App() {
       const stored = localStorage.getItem("cherinotes_authenticated_user");
       if (stored) {
         setUser(JSON.parse(stored));
+        setIsAuthChecking(false);
       }
     } catch (e) {
       console.warn("Could not retrieve credentials cache:", e);
@@ -60,7 +61,11 @@ export default function App() {
           bio: parsed?.bio || ""
         };
         setUser(updatedUser);
-        await AppDatabase.saveUserProfile(updatedUser);
+        
+        // Sync in the background to prevent offline Firestore networks from hanging App load
+        AppDatabase.saveUserProfile(updatedUser).catch(err => {
+          console.warn("Background user profiles synchronization remark:", err);
+        });
       } else {
         // If Firebase SDK states the user is signed out, clear local session state
         // to prevent false admin visibility that causes direct Firestore write rejections

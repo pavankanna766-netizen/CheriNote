@@ -4,7 +4,7 @@ import {
   RefreshCw, Smile, ArrowLeft, AlertCircle, HelpCircle, User, Zap
 } from "lucide-react";
 import { db, auth, handleFirestoreError, OperationType } from "../firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, deleteDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { UserProfile } from "../types";
 
@@ -52,12 +52,15 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
     }
 
     const localKey = `cherinotes_companion_chat_${user.uid}`;
+    let hasCache = false;
     
     // 1. Priming: instantly retrieve local storage cache to guarantee 0ms initial loading delay
     try {
       const stored = localStorage.getItem(localKey);
       if (stored) {
         setConversation(JSON.parse(stored));
+        setLoading(false);
+        hasCache = true;
       }
     } catch (storageErr) {
       console.warn("Optimistic companion storage loader warning:", storageErr);
@@ -68,11 +71,19 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
     async function fetchChat() {
       if (!active) return;
       try {
-        setLoading(true);
-        // 2. Race the Firestore document getter call with a 2.5 second timeout to safely prevent indefinite hangs
+        if (!hasCache) {
+          setLoading(true);
+        }
+        
+        // If navigator states we are offline, fail over to the local storage mode instantly
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          throw new Error("Client is currently offline");
+        }
+
+        // 2. Race the Firestore document getter call with a 1.5 second timeout to safely prevent indefinite hangs
         const docSnapPromise = getDoc(doc(db, "ai_companion_conversations", user!.uid));
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error("Timeout waiting for Cloud Sync")), 2500);
+          setTimeout(() => reject(new Error("Timeout waiting for Cloud Sync")), 1500);
         });
 
         const docSnap = await Promise.race([docSnapPromise, timeoutPromise]);
@@ -103,16 +114,8 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
     // Fire the initial loader
     fetchChat();
 
-    // Subscribe to auth state updates in case of dynamic credentials changes
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser && firebaseUser.uid === user.uid && active) {
-        fetchChat();
-      }
-    });
-
     return () => {
       active = false;
-      unsubscribe();
     };
   }, [user?.uid, isPremium]);
 
@@ -255,7 +258,6 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
     if (!confirmErase) return;
 
     try {
-      setLoading(true);
       const cleanMessage = {
         id: "wel_" + Date.now(),
         sender: "ai",
@@ -279,15 +281,13 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
         console.warn("Storage writing error:", storageErr);
       }
 
-      // Safe background cloud sync
+      // Safe non-blocking background cloud sync
       setDoc(doc(db, "ai_companion_conversations", user.uid), updatedConv).catch(cloudErr => {
         console.error("Non-blocking Cloud Companion memory erase sync warning:", cloudErr);
       });
     } catch (err) {
       console.error("Could not reset companion cloud memories:", err);
       setErrorStatus("Could not reset companion cloud memories.");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -300,8 +300,13 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
       } catch (e) {
         console.warn("Failed clearing local storage companion keys:", e);
       }
+
+      // Safe non-blocking background cloud deletion
+      deleteDoc(doc(db, "ai_companion_conversations", user.uid)).catch(cloudErr => {
+        console.warn("Non-blocking Cloud Companion deletion warning:", cloudErr);
+      });
     }
-    setConversation(null); // Triggers setup screen
+    setConversation(null); // Triggers setup screen instantly
   };
 
   // Message Send Logic (multimodal server call)
@@ -320,13 +325,15 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
     setErrorStatus(null);
 
     // 1. Optimistic Client State updates
-    const localUserMsg = {
+    const localUserMsg: any = {
       id: "usr_" + Date.now(),
       sender: "user",
       text: textPayload,
-      imageUrl: imgPayload || undefined,
       createdAt: new Date().toISOString()
     };
+    if (imgPayload) {
+      localUserMsg.imageUrl = imgPayload;
+    }
 
     const updatedMessages = [...conversation.messages, localUserMsg];
     setConversation(prev => prev ? { ...prev, messages: updatedMessages } : null);
