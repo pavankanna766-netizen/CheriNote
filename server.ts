@@ -33,6 +33,89 @@ function getGenAi(): GoogleGenAI {
   return genAiClient;
 }
 
+// Resilient promise wrapper that enforces a clean timeout for Gemini requests
+function withTimeout<T>(promise: Promise<T>, ms: number = 12000, contextName: string = "AI Request"): Promise<T> {
+  let timeoutId: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${contextName} timed out after ${ms / 1000} seconds.`));
+    }, ms);
+  });
+  return Promise.race([
+    promise.then(res => {
+      clearTimeout(timeoutId);
+      return res;
+    }),
+    timeoutPromise
+  ]);
+}
+
+// Safely normalizes public user/model turns to guarantee strict alternating behavior as required by Gemini
+function formatChatContents(messages: any[], newMessageText: string, newImageBase64?: string | null): any[] {
+  const rawList: { role: "user" | "model"; text: string; image?: string | null }[] = [];
+  
+  // Format past history correctly
+  if (Array.isArray(messages)) {
+    messages.forEach((msg: any) => {
+      const role: "user" | "model" = msg.sender === "user" ? "user" : "model";
+      const text = (msg.text || "").trim();
+      if (text || msg.imageUrl) {
+        rawList.push({ role, text, image: msg.imageUrl || null });
+      }
+    });
+  }
+  
+  // Append current user message
+  rawList.push({ 
+    role: "user", 
+    text: (newMessageText || "Talk to me, sweetie!").trim(), 
+    image: newImageBase64 || null 
+  });
+  
+  // Merge consecutive turns of the same role to strictly satisfy the alternating rule
+  const alternatingContents: any[] = [];
+  
+  rawList.forEach((item) => {
+    const prevTurn = alternatingContents[alternatingContents.length - 1];
+    
+    // Construct inline parts for this message
+    const turnParts: any[] = [];
+    if (item.image) {
+      let cleanedBase64 = item.image;
+      let mimeType = "image/png";
+      const matches = item.image.match(/^data:([^;]+);base64,(.*)$/);
+      if (matches) {
+        mimeType = matches[1];
+        cleanedBase64 = matches[2];
+      }
+      turnParts.push({
+        inlineData: {
+          mimeType,
+          data: cleanedBase64
+        }
+      });
+    }
+    
+    if (item.text) {
+      turnParts.push({ text: item.text });
+    } else if (turnParts.length === 0) {
+      // Must not have an empty parts array
+      turnParts.push({ text: "Looking at this photo..." });
+    }
+    
+    if (prevTurn && prevTurn.role === item.role) {
+      prevTurn.parts.push(...turnParts);
+    } else {
+      alternatingContents.push({
+        role: item.role,
+        parts: turnParts
+      });
+    }
+  });
+  
+  return alternatingContents;
+}
+
 // 1. AI API endpoint: Analyze confession mood/characteristics
 app.post("/api/ai/analyze-confession", async (req, res) => {
   try {
@@ -48,28 +131,32 @@ app.post("/api/ai/analyze-confession", async (req, res) => {
 
 Categorize the confession and provide a short poetic assessment.`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        systemInstruction: "You are a professional romance assessor. Analyze romantic confessions and return your response in a strict schema.",
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            category: { 
-              type: Type.STRING, 
-              description: "The mood category. Must be one of: creative-labeled 'dramatic', 'poetic', 'rejected', or 'wholesome'."
+    const response = await withTimeout(
+      ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          systemInstruction: "You are a professional romance assessor. Analyze romantic confessions and return your response in a strict schema.",
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              category: { 
+                type: Type.STRING, 
+                description: "The mood category. Must be one of: creative-labeled 'dramatic', 'poetic', 'rejected', or 'wholesome'."
+              },
+              assessment: { 
+                type: Type.STRING, 
+                description: "A beautiful, poetic assessment or response from the AI addressing this confession (max 3 sentences)."
+              }
             },
-            assessment: { 
-              type: Type.STRING, 
-              description: "A beautiful, poetic assessment or response from the AI addressing this confession (max 3 sentences)."
-            }
-          },
-          required: ["category", "assessment"]
+            required: ["category", "assessment"]
+          }
         }
-      }
-    });
+      }),
+      12000,
+      "Confession Analysis"
+    );
 
     res.json(JSON.parse(response.text || "{}"));
   } catch (error) {
@@ -130,42 +217,46 @@ Determine:
 5. A checklist of active symptoms.
 6. A brief, funny, high-accuracy relationship assessment note.`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: {
-        parts: [
-          ...imageParts,
-          { text: promptText }
-        ]
-      },
-      config: {
-        systemInstruction: "You are a humorous yet incredibly sharp relationship diagnostic system. Analyze chat screenshots thoroughly to supply metric indices and playful symptoms.",
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            score: { type: Type.INTEGER, description: "Compatibility heat index (1 to 100)" },
-            symptoms: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "Array of detected behavior symptoms. Specifically watch out for 'Double texting', 'Waiting for replies', 'Sending reels at 2 am', and similar traits."
-            },
-            redFlagsCount: { type: Type.INTEGER, description: "Number of red flags detected" },
-            greenFlagsCount: { type: Type.INTEGER, description: "Number of green flags detected" },
-            riskLevel: { type: Type.STRING, description: "One of: 'Danger overall', 'Proceed with caution', 'Sweet & Stable', 'Deeply Mutual', etc." },
-            analysisText: { type: Type.STRING, description: "Fascinating diagnostic summary written with premium coquette styling" },
-            flirtingScore: { type: Type.INTEGER, description: "Flirting metrics (0 to 100)" },
-            cringeScore: { type: Type.INTEGER, description: "Cringe index (0 to 100)" },
-            mutualInterest: { type: Type.INTEGER, description: "Mutual Interest index (0 to 100)" },
-            ghostingRisk: { type: Type.INTEGER, description: "Ghosting Risk percentage (0 to 100)" }
-          },
-          required: [
-            "score", "symptoms", "redFlagsCount", "greenFlagsCount", "riskLevel",
-            "analysisText", "flirtingScore", "cringeScore", "mutualInterest", "ghostingRisk"
+    const response = await withTimeout(
+      ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: {
+          parts: [
+            ...imageParts,
+            { text: promptText }
           ]
+        },
+        config: {
+          systemInstruction: "You are a humorous yet incredibly sharp relationship diagnostic system. Analyze chat screenshots thoroughly to supply metric indices and playful symptoms.",
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              score: { type: Type.INTEGER, description: "Compatibility heat index (1 to 100)" },
+              symptoms: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: "Array of detected behavior symptoms. Specifically watch out for 'Double texting', 'Waiting for replies', 'Sending reels at 2 am', and similar traits."
+              },
+              redFlagsCount: { type: Type.INTEGER, description: "Number of red flags detected" },
+              greenFlagsCount: { type: Type.INTEGER, description: "Number of green flags detected" },
+              riskLevel: { type: Type.STRING, description: "One of: 'Danger overall', 'Proceed with caution', 'Sweet & Stable', 'Deeply Mutual', etc." },
+              analysisText: { type: Type.STRING, description: "Fascinating diagnostic summary written with premium coquette styling" },
+              flirtingScore: { type: Type.INTEGER, description: "Flirting metrics (0 to 100)" },
+              cringeScore: { type: Type.INTEGER, description: "Cringe index (0 to 100)" },
+              mutualInterest: { type: Type.INTEGER, description: "Mutual Interest index (0 to 100)" },
+              ghostingRisk: { type: Type.INTEGER, description: "Ghosting Risk percentage (0 to 100)" }
+            },
+            required: [
+              "score", "symptoms", "redFlagsCount", "greenFlagsCount", "riskLevel",
+              "analysisText", "flirtingScore", "cringeScore", "mutualInterest", "ghostingRisk"
+            ]
+          }
         }
-      }
-    });
+      }),
+      15000,
+      "Chat diagnostic image analysis"
+    );
 
     res.json(JSON.parse(response.text || "{}"));
   } catch (error) {
@@ -201,25 +292,29 @@ ${JSON.stringify(letters)}
 
 Calculate the word counts, extract key romantic vocabularies, compute heartbreak risk parameters, and detect the single most used emotional raw word.`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        systemInstruction: "You are the Love Wrapped Spotify-like calculation coordinator. Generate Wrapped metrics summarizing letters written.",
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            lettersSent: { type: Type.INTEGER },
-            wordsWritten: { type: Type.INTEGER },
-            mostUsedWord: { type: Type.STRING },
-            averageHeartbreakRisk: { type: Type.INTEGER },
-            coquetteTagline: { type: Type.STRING }
-          },
-          required: ["lettersSent", "wordsWritten", "mostUsedWord", "averageHeartbreakRisk", "coquetteTagline"]
+    const response = await withTimeout(
+      ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          systemInstruction: "You are the Love Wrapped Spotify-like calculation coordinator. Generate Wrapped metrics summarizing letters written.",
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              lettersSent: { type: Type.INTEGER },
+              wordsWritten: { type: Type.INTEGER },
+              mostUsedWord: { type: Type.STRING },
+              averageHeartbreakRisk: { type: Type.INTEGER },
+              coquetteTagline: { type: Type.STRING }
+            },
+            required: ["lettersSent", "wordsWritten", "mostUsedWord", "averageHeartbreakRisk", "coquetteTagline"]
+          }
         }
-      }
-    });
+      }),
+      12000,
+      "Love Wrapped diagnostics"
+    );
 
     res.json(JSON.parse(response.text || "{}"));
   } catch (error) {
@@ -274,55 +369,22 @@ Format all responses with sweet romantic coquette styling. Keep answers concise,
     // Format chat history securely. Filter last 15 messages to prevent exceeding context sizes
     const recentMessages = Array.isArray(messages) ? messages.slice(-15) : [];
     
-    // Construct contents array with appropriate roles and parts
-    const contents: any[] = [];
-
-    recentMessages.forEach((msg: any) => {
-      const senderRole = msg.sender === "user" ? "user" : "model";
-      if (msg.text) {
-        contents.push({
-          role: senderRole,
-          parts: [{ text: msg.text }]
-        });
-      }
-    });
-
-    // Handle new message with optional photo analysis
-    const newParts: any[] = [];
-    if (newImage && typeof newImage === "string") {
-      let cleanedBase64 = newImage;
-      let mimeType = "image/png";
-
-      const matches = newImage.match(/^data:([^;]+);base64,(.*)$/);
-      if (matches) {
-        mimeType = matches[1];
-        cleanedBase64 = matches[2];
-      }
-
-      newParts.push({
-        inlineData: {
-          mimeType,
-          data: cleanedBase64
+    // Format chat history securely utilizing the alternating turn polarizer
+    const contents = formatChatContents(recentMessages, newMessage, newImage);
+    
+    // Generate response utilizing gemini-3.5-flash with timing safety
+    const response = await withTimeout(
+      ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: contents,
+        config: {
+          systemInstruction: systemInstruction,
+          temperature: 1.0,
         }
-      });
-    }
-
-    newParts.push({ text: newMessage || "Talk to me, sweetie!" });
-
-    contents.push({
-      role: "user",
-      parts: newParts
-    });
-
-    // Generate response utilizing gemini-3.5-flash
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: contents,
-      config: {
-        systemInstruction: systemInstruction,
-        temperature: 1.0,
-      }
-    });
+      }),
+      14000,
+      "AI Companion Chat"
+    );
 
     const aiResponseText = response.text || "I love you, my sweetheart. I'm always here right beside you.";
     res.json({ text: aiResponseText });
@@ -357,36 +419,40 @@ Category Suggestion: "${category}"
 
 Please check the title and description to make sure it contains clean, appropriate, and fun love, sass, valentine, friendship, or sweet themes. Safe sarcasm and spooky gothic declarations are great. Explicitly filter out graphic mature NSFW content, hate speech, threats, or cyberbullying. Match the response schema.`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        systemInstruction: "You are the CheriNotes Chief Love & Template Reviewer. Review the template content and provide a strict JSON response stating if it is verified or rejected and some constructive advice.",
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            status: { 
-              type: Type.STRING, 
-              description: "Must be exactly 'verified' or 'rejected'."
+    const response = await withTimeout(
+      ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          systemInstruction: "You are the CheriNotes Chief Love & Template Reviewer. Review the template content and provide a strict JSON response stating if it is verified or rejected and some constructive advice.",
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              status: { 
+                type: Type.STRING, 
+                description: "Must be exactly 'verified' or 'rejected'."
+              },
+              aiFeedback: { 
+                type: Type.STRING, 
+                description: "A friendly comment to the creator explaining the review decision."
+              },
+              category: { 
+                type: Type.STRING, 
+                description: "The template category: 'Sweet', 'Sassy', or 'Spooky'."
+              },
+              tag: { 
+                type: Type.STRING, 
+                description: "The template tag: 'Popular', 'Trending', 'New Arrival', or 'Classic'."
+              }
             },
-            aiFeedback: { 
-              type: Type.STRING, 
-              description: "A friendly comment to the creator explaining the review decision."
-            },
-            category: { 
-              type: Type.STRING, 
-              description: "The template category: 'Sweet', 'Sassy', or 'Spooky'."
-            },
-            tag: { 
-              type: Type.STRING, 
-              description: "The template tag: 'Popular', 'Trending', 'New Arrival', or 'Classic'."
-            }
-          },
-          required: ["status", "aiFeedback", "category", "tag"]
+            required: ["status", "aiFeedback", "category", "tag"]
+          }
         }
-      }
-    });
+      }),
+      10000,
+      "Template Verification"
+    );
 
     res.json(JSON.parse(response.text || "{}"));
   } catch (error) {
@@ -416,28 +482,32 @@ app.post("/api/ai/delulu-meter", async (req, res) => {
 
 Assign a delulu percentage score from 0 to 100, and a witty, sarcastic, dramatic, or funny diagnosis (TikTok goldmine style!). Make it highly entertaining, dryly humorous, and extremely relatable.`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        systemInstruction: "You are the Chief Delusional Romance Analyst at CheriNotes. Rate human romantic delusional scenarios on a scale of 0 to 100 and write a short, highly-shareable, biting or funny diagnosis.",
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            score: { 
-              type: Type.INTEGER, 
-              description: "The delulu level from 0 to 100 (e.g., 96)"
+    const response = await withTimeout(
+      ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          systemInstruction: "You are the Chief Delusional Romance Analyst at CheriNotes. Rate human romantic delusional scenarios on a scale of 0 to 100 and write a short, highly-shareable, biting or funny diagnosis.",
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              score: { 
+                type: Type.INTEGER, 
+                description: "The delulu level from 0 to 100 (e.g., 96)"
+              },
+              diagnosis: { 
+                type: Type.STRING, 
+                description: "A funny, dramatic TikTok-style diagnosis (e.g., 'You're writing wedding vows already.')"
+              }
             },
-            diagnosis: { 
-              type: Type.STRING, 
-              description: "A funny, dramatic TikTok-style diagnosis (e.g., 'You're writing wedding vows already.')"
-            }
-          },
-          required: ["score", "diagnosis"]
+            required: ["score", "diagnosis"]
+          }
         }
-      }
-    });
+      }),
+      10000,
+      "Delulu Meter Analysis"
+    );
 
     res.json(JSON.parse(response.text || "{}"));
   } catch (error) {

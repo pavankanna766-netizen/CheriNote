@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { db, auth, handleFirestoreError, OperationType } from "../firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
 import { UserProfile } from "../types";
 
 interface AICompanionPageProps {
@@ -50,15 +51,10 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
       return;
     }
 
-    // Wait until the Firebase Client SDK state is fully synchronized and logged in
-    if (!auth.currentUser || auth.currentUser.uid !== user.uid) {
-      return;
-    }
-
     async function fetchChat() {
       try {
         setLoading(true);
-        const docSnap = await getDoc(doc(db, "ai_companion_conversations", user.uid));
+        const docSnap = await getDoc(doc(db, "ai_companion_conversations", user!.uid));
         if (docSnap.exists()) {
           setConversation(docSnap.data());
         } else {
@@ -66,7 +62,9 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
         }
       } catch (err) {
         try {
-          handleFirestoreError(err, OperationType.GET, `ai_companion_conversations/${user.uid}`);
+          if (user) {
+            handleFirestoreError(err, OperationType.GET, `ai_companion_conversations/${user.uid}`);
+          }
         } catch (wrappedErr) {
           console.error("Failed loading AI companion chat:", wrappedErr);
         }
@@ -76,7 +74,33 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
       }
     }
 
-    fetchChat();
+    // Subscribe to auth state changes dynamically so that when the client SDK synchronizes,
+    // the chat loads instantly without getting stuck behind a cached state barrier.
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser && firebaseUser.uid === user.uid) {
+        fetchChat();
+      }
+    });
+
+    // If the Firebase instance is already initialized and matching our user
+    if (auth.currentUser && auth.currentUser.uid === user.uid) {
+      fetchChat();
+    } else {
+      // In case we are waiting for the client SDK to initialize, let's set a 3s safety timeout to at least stop the loading screen
+      const timeout = setTimeout(() => {
+        if (loading) {
+          fetchChat();
+        }
+      }, 3000);
+      return () => {
+        unsubscribe();
+        clearTimeout(timeout);
+      };
+    }
+
+    return () => {
+      unsubscribe();
+    };
   }, [user, isPremium]);
 
   // Scroll logic
