@@ -51,57 +51,70 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
       return;
     }
 
+    const localKey = `cherinotes_companion_chat_${user.uid}`;
+    
+    // 1. Priming: instantly retrieve local storage cache to guarantee 0ms initial loading delay
+    try {
+      const stored = localStorage.getItem(localKey);
+      if (stored) {
+        setConversation(JSON.parse(stored));
+      }
+    } catch (storageErr) {
+      console.warn("Optimistic companion storage loader warning:", storageErr);
+    }
+
+    let active = true;
+
     async function fetchChat() {
+      if (!active) return;
       try {
         setLoading(true);
-        const docSnap = await getDoc(doc(db, "ai_companion_conversations", user!.uid));
+        // 2. Race the Firestore document getter call with a 2.5 second timeout to safely prevent indefinite hangs
+        const docSnapPromise = getDoc(doc(db, "ai_companion_conversations", user!.uid));
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error("Timeout waiting for Cloud Sync")), 2500);
+        });
+
+        const docSnap = await Promise.race([docSnapPromise, timeoutPromise]);
+        
+        if (!active) return;
+
         if (docSnap.exists()) {
-          setConversation(docSnap.data());
+          const data = docSnap.data();
+          setConversation(data);
+          try {
+            localStorage.setItem(localKey, JSON.stringify(data));
+          } catch (e) {
+            console.warn("Storage syncing error:", e);
+          }
         } else {
-          setConversation(null);
+          // Keep existing cache draft unless there is absolutely no history
+          setConversation(prev => prev || null);
         }
       } catch (err) {
-        try {
-          if (user) {
-            handleFirestoreError(err, OperationType.GET, `ai_companion_conversations/${user.uid}`);
-          }
-        } catch (wrappedErr) {
-          console.error("Failed loading AI companion chat:", wrappedErr);
-        }
-        setErrorStatus("Could not synchronize with cloud logs. Fallback standard local chat activated.");
+        console.warn("Network synchronization delayed; standard secured local chat activated.", err);
       } finally {
-        setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     }
 
-    // Subscribe to auth state changes dynamically so that when the client SDK synchronizes,
-    // the chat loads instantly without getting stuck behind a cached state barrier.
+    // Fire the initial loader
+    fetchChat();
+
+    // Subscribe to auth state updates in case of dynamic credentials changes
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser && firebaseUser.uid === user.uid) {
+      if (firebaseUser && firebaseUser.uid === user.uid && active) {
         fetchChat();
       }
     });
 
-    // If the Firebase instance is already initialized and matching our user
-    if (auth.currentUser && auth.currentUser.uid === user.uid) {
-      fetchChat();
-    } else {
-      // In case we are waiting for the client SDK to initialize, let's set a 3s safety timeout to at least stop the loading screen
-      const timeout = setTimeout(() => {
-        if (loading) {
-          fetchChat();
-        }
-      }, 3000);
-      return () => {
-        unsubscribe();
-        clearTimeout(timeout);
-      };
-    }
-
     return () => {
+      active = false;
       unsubscribe();
     };
-  }, [user, isPremium]);
+  }, [user?.uid, isPremium]);
 
   // Scroll logic
   useEffect(() => {
@@ -158,14 +171,22 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
         createdAt: new Date().toISOString()
       };
 
-      await setDoc(doc(db, "ai_companion_conversations", user.uid), newConv);
+      // Set conversation state and save directly into local storage first for prompt responsiveness
       setConversation(newConv);
-    } catch (err) {
+      
+      const localKey = `cherinotes_companion_chat_${user.uid}`;
       try {
-        handleFirestoreError(err, OperationType.WRITE, `ai_companion_conversations/${user.uid}`);
-      } catch (wrappedErr) {
-        console.error("Failed awaking AI Companion:", wrappedErr);
+        localStorage.setItem(localKey, JSON.stringify(newConv));
+      } catch (storageErr) {
+        console.warn("Storage writing error:", storageErr);
       }
+
+      // Sync non-blockingly with Firebase Firestore to avoid blocking interface
+      setDoc(doc(db, "ai_companion_conversations", user.uid), newConv).catch(cloudErr => {
+        console.error("Non-blocking Cloud Companion calibration warning:", cloudErr);
+      });
+    } catch (err) {
+      console.error("Failed awaking AI Companion:", err);
       setErrorStatus("Failed to synchronize companion configuration.");
     } finally {
       setLoading(false);
@@ -248,14 +269,22 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
         lastUpdatedAt: new Date().toISOString()
       };
 
-      await setDoc(doc(db, "ai_companion_conversations", user.uid), updatedConv);
+      // Set conversation state in UI instantly
       setConversation(updatedConv);
-    } catch (err) {
+
+      const localKey = `cherinotes_companion_chat_${user.uid}`;
       try {
-        handleFirestoreError(err, OperationType.WRITE, `ai_companion_conversations/${user.uid}`);
-      } catch (wrappedErr) {
-        console.error(wrappedErr);
+        localStorage.setItem(localKey, JSON.stringify(updatedConv));
+      } catch (storageErr) {
+        console.warn("Storage writing error:", storageErr);
       }
+
+      // Safe background cloud sync
+      setDoc(doc(db, "ai_companion_conversations", user.uid), updatedConv).catch(cloudErr => {
+        console.error("Non-blocking Cloud Companion memory erase sync warning:", cloudErr);
+      });
+    } catch (err) {
+      console.error("Could not reset companion cloud memories:", err);
       setErrorStatus("Could not reset companion cloud memories.");
     } finally {
       setLoading(false);
@@ -264,6 +293,14 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
 
   // Reconfigure companion setup
   const handleReconfigure = () => {
+    if (user) {
+      const localKey = `cherinotes_companion_chat_${user.uid}`;
+      try {
+        localStorage.removeItem(localKey);
+      } catch (e) {
+        console.warn("Failed clearing local storage companion keys:", e);
+      }
+    }
     setConversation(null); // Triggers setup screen
   };
 
@@ -294,6 +331,19 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
     const updatedMessages = [...conversation.messages, localUserMsg];
     setConversation(prev => prev ? { ...prev, messages: updatedMessages } : null);
 
+    // Persist optimistically to localStorage immediately so user's message is preserved on refresh
+    const localKey = `cherinotes_companion_chat_${user.uid}`;
+    const optimisticConv = {
+      ...conversation,
+      messages: updatedMessages,
+      lastUpdatedAt: new Date().toISOString()
+    };
+    try {
+      localStorage.setItem(localKey, JSON.stringify(optimisticConv));
+    } catch (err) {
+      console.warn("localStorage optimistic save warning:", err);
+    }
+
     try {
       // 2. Contact the secure backend endpoint
       const response = await fetch("/api/ai/companion-chat", {
@@ -320,7 +370,7 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
 
       const responseData = await response.json();
       
-      // 3. Complete chat stream and write in firestore
+      // 3. Complete chat stream and write in local storage first
       const companionReplyMsg = {
         id: "ai_" + Date.now(),
         sender: "ai",
@@ -336,15 +386,23 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
         lastUpdatedAt: new Date().toISOString()
       };
 
+      // Set state in UI immediately
       setConversation(finishedConv);
-      await setDoc(doc(db, "ai_companion_conversations", user.uid), finishedConv);
+      
+      // Sync into localStorage
+      try {
+        localStorage.setItem(localKey, JSON.stringify(finishedConv));
+      } catch (storageErr) {
+        console.warn("localStorage sync error:", storageErr);
+      }
+
+      // Sync non-blockingly with cloud Firestore so that backend latency never ruins the sweet chat flow
+      setDoc(doc(db, "ai_companion_conversations", user.uid), finishedConv).catch(cloudSyncErr => {
+        console.error("Non-blocking Cloud Companion message sync warning:", cloudSyncErr);
+      });
 
     } catch (err: any) {
-      try {
-        handleFirestoreError(err, OperationType.WRITE, `ai_companion_conversations/${user.uid}`);
-      } catch (wrappedErr) {
-        console.error("AI companion message failure:", wrappedErr);
-      }
+      console.error("AI companion message failure:", err);
       setErrorStatus("Cloud signal lost: " + (err.message || "Failed receiving response from your sweetheart. Please whisper again."));
       
       // Append fail message
@@ -354,7 +412,20 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
         text: "Oh darling... My connection got a bit dizzy and couldn't process that photo/whisper. Let's try writing to each other again, sweetie! I'm always right here.",
         createdAt: new Date().toISOString()
       };
-      setConversation(prev => prev ? { ...prev, messages: [...prev.messages, failRecoveryMsg] } : null);
+      
+      const revertedMessages = [...updatedMessages, failRecoveryMsg];
+      const revertedConv = {
+        ...conversation,
+        messages: revertedMessages,
+        lastUpdatedAt: new Date().toISOString()
+      };
+
+      setConversation(revertedConv);
+      try {
+        localStorage.setItem(localKey, JSON.stringify(revertedConv));
+      } catch (stgErr) {
+        console.warn("localStorage revert write error:", stgErr);
+      }
     } finally {
       setSending(false);
     }
