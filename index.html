@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Google AI Studio App</title>
+    <script>
+      // Silently intercept and suppress benign dev-server WebSocket HMR/reconnection rejections or errors
+      const originalConsoleError = console.error;
+      console.error = function(...args) {
+        if (args[0] && typeof args[0] === 'string' && args[0].includes('[vite] failed to connect to websocket')) {
+          return;
+        }
+        originalConsoleError.apply(console, args);
+      };
+
+      window.addEventListener('unhandledrejection', function(event) {
+        if (event.reason && (
+          event.reason.message === 'WebSocket closed without opened.' ||
+          (typeof event.reason.message === 'string' && event.reason.message.toLowerCase().includes('websocket')) ||
+          (typeof event.reason.stack === 'string' && event.reason.stack.toLowerCase().includes('vite'))
+        )) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      }, true);
+
+      window.addEventListener('error', function(event) {
+        if (event.message && (
+          typeof event.message === 'string' && (
+            event.message.toLowerCase().includes('websocket') ||
+            event.message.includes('WebSocket closed without opened')
+          )
+        )) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      }, true);
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

@@ -1,0 +1,222 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile containing authentication and contact details.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique user ID matches Firebase Auth UID" },
+        "name": { "type": "string", "description": "Display name of the user" },
+        "email": { "type": "string", "format": "email", "description": "User email address" },
+        "mobileNumber": { "type": "string", "description": "Optional mobile number" },
+        "photoUrl": { "type": "string", "description": "User avatar photo URL" },
+        "bio": { "type": "string", "description": "User custom brief romance bio" },
+        "gender": { "type": "string", "description": "Self-identified gender of the user" },
+        "isVerified": { "type": "boolean", "description": "Whether user is verified" }
+      },
+      "required": ["uid", "name", "email", "photoUrl"]
+    },
+    "CustomProposal": {
+      "title": "CustomProposal",
+      "description": "A customized Valentine letter or proposal layout.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the proposal" },
+        "receiverName": { "type": "string", "description": "Name of the person receiving the proposal" },
+        "senderName": { "type": "string", "description": "Name of the person sending the proposal" },
+        "message": { "type": "string", "description": "Inner message content" },
+        "themeIndex": { "type": "integer", "description": "Selected theme style index" },
+        "viralEffects": { "type": "boolean", "description": "Enable visual animations like ribbons" },
+        "yesClicked": { "type": "boolean", "description": "Whether the recipient said YES" },
+        "noAttempts": { "type": "integer", "description": "Number of times NO was clicked or evaded" },
+        "isPrivate": { "type": "boolean", "description": "If false, shows up on the global Public Valentine Board" },
+        "likesList": { "type": "array", "description": "Array of user UIDs who liked this proposal" },
+        "likesCount": { "type": "integer", "description": "Total number of likes" },
+        "viewsCount": { "type": "integer", "description": "Total times viewed" },
+        "authorId": { "type": "string", "description": "User UID of the creator" },
+        "authorName": { "type": "string", "description": "Name of the creator" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "ISO timestamp when created" }
+      },
+      "required": ["id", "receiverName", "senderName", "message", "themeIndex", "viralEffects", "yesClicked", "noAttempts", "isPrivate", "likesList", "likesCount", "viewsCount", "authorName", "createdAt"]
+    },
+    "RealtimeNotification": {
+      "title": "RealtimeNotification",
+      "description": "User notification about viewing, liking, or sealing note.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique notification ID" },
+        "title": { "type": "string", "description": "Headline of the notification" },
+        "message": { "type": "string", "description": "Notification content" },
+        "type": { "type": "string", "enum": ["seal", "view", "like", "system"], "description": "Notification activity type" },
+        "isRead": { "type": "boolean", "description": "Unread state indicator" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "ISO timestamp" }
+      },
+      "required": ["id", "title", "message", "type", "isRead", "createdAt"]
+    },
+    "SystemUpdateLog": {
+      "title": "SystemUpdateLog",
+      "description": "Global changelog entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique log ID" },
+        "title": { "type": "string", "description": "Update title" },
+        "content": { "type": "string", "description": "Changelog details" },
+        "date": { "type": "string", "description": "Date of announcement" },
+        "author": { "type": "string", "description": "Post author" }
+      },
+      "required": ["id", "title", "content", "date", "author"]
+    },
+    "CrushReply": {
+      "title": "CrushReply",
+      "description": "A response or statement sent back to the anonymous sender.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sender": { "type": "string" },
+        "message": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "sender", "message", "createdAt"]
+    },
+    "CrushLetter": {
+      "title": "CrushLetter",
+      "description": "An anonymous letter written to a crush with reactions and replies.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "crushName": { "type": "string" },
+        "displayName": { "type": "string" },
+        "senderName": { "type": "string" },
+        "message": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "reactions": { "type": "array" },
+        "replies": { "type": "array" },
+        "likesList": { "type": "array", "description": "Array of user UIDs who liked this confession" },
+        "isPublished": { "type": "boolean", "description": "Whether the author chooses to post this confession publicly" }
+      },
+      "required": ["id", "crushName", "displayName", "senderName", "message", "createdAt", "reactions", "replies", "likesList", "isPublished"]
+    },
+    "GameRoom": {
+      "title": "GameRoom",
+      "description": "An anonymous game room for coquette interactive mini-games.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "player1Id": { "type": "string" },
+        "player1Name": { "type": "string" },
+        "player1Gender": { "type": "string" },
+        "player1Preference": { "type": "string" },
+        "player2Id": { "type": "string" },
+        "player2Name": { "type": "string" },
+        "player2Gender": { "type": "string" },
+        "player2Preference": { "type": "string" },
+        "gameType": { "type": "string" },
+        "status": { "type": "string" },
+        "board": { "type": "array" },
+        "turn": { "type": "string" },
+        "winner": { "type": "string" },
+        "messages": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": [
+        "id", "player1Id", "player1Name", "player1Gender", "player1Preference",
+        "player2Id", "player2Name", "player2Gender", "player2Preference",
+        "gameType", "status", "board", "turn", "winner", "messages", "createdAt", "updatedAt"
+      ]
+    },
+    "CompanionConversation": {
+      "title": "CompanionConversation",
+      "description": "An AI companion sweetheart conversation configuration and history.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique conversation ID matches owner's auth UID" },
+        "ownerId": { "type": "string", "description": "User UID who runs this companion" },
+        "aiName": { "type": "string", "description": "Lover companion custom configured name" },
+        "personality": { "type": "string", "description": "Personality temperament type" },
+        "relationshipType": { "type": "string", "description": "Type of relationship dynamic" },
+        "focusArea": { "type": "string", "description": "Well-being focus theme" },
+        "messages": { "type": "array", "description": "Self-referencing chat history messages" },
+        "lastUpdatedAt": { "type": "string", "description": "Last ISO timestamp edited" },
+        "createdAt": { "type": "string", "description": "Creation ISO timestamp" }
+      },
+      "required": ["id", "ownerId", "aiName", "personality", "relationshipType", "focusArea", "messages", "lastUpdatedAt", "createdAt"]
+    },
+    "SoulConnection": {
+      "title": "SoulConnection",
+      "description": "An opposite gender personal matchmaking connection and private chat session.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique connection ID (e.g., senderId_receiverId)" },
+        "senderId": { "type": "string", "description": "User UID who initiated the connection request" },
+        "senderName": { "type": "string", "description": "Name of the initiating user" },
+        "senderGender": { "type": "string", "description": "Gender of the initiating user" },
+        "receiverId": { "type": "string", "description": "User UID who received the connection request" },
+        "receiverName": { "type": "string", "description": "Name of the receiving user" },
+        "receiverGender": { "type": "string", "description": "Gender of the receiving user" },
+        "status": { "type": "string", "enum": ["pending", "accepted"], "description": "The current status of the connection" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Connection creation ISO timestamp" },
+        "messages": { "type": "array", "description": "Nested personal chat log history" }
+      },
+      "required": ["id", "senderId", "senderName", "senderGender", "receiverId", "receiverName", "receiverGender", "status", "createdAt", "messages"]
+    },
+    "UserTemplate": {
+      "title": "UserTemplate",
+      "description": "Love and custom proposal templates submitted by users for AI verification.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string", "enum": ["Sweet", "Sassy", "Spooky"] },
+        "tag": { "type": "string", "enum": ["Popular", "Trending", "New Arrival", "Classic"] },
+        "imageUrl": { "type": "string" },
+        "isPremium": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "verified", "rejected"] },
+        "aiFeedback": { "type": "string" }
+      },
+      "required": ["id", "userId", "authorName", "title", "description", "category", "tag", "imageUrl", "isPremium", "createdAt", "status"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User registration profiles."
+    },
+    "proposals/{proposalId}": {
+      "schema": { "$ref": "#/entities/CustomProposal" },
+      "description": "Customized proposals with styling, responses, likes, and privacy settings."
+    },
+    "users/{userId}/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/RealtimeNotification" },
+      "description": "Targeted updates notifying users when their proposals are liked or actioned."
+    },
+    "update_logs/{logId}": {
+      "schema": { "$ref": "#/entities/SystemUpdateLog" },
+      "description": "System development releases."
+    },
+    "crush_letters/{letterId}": {
+      "schema": { "$ref": "#/entities/CrushLetter" },
+      "description": "Anonymous notes posted to a specific crush by standard name search query."
+    },
+    "lover_game_rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/GameRoom" },
+      "description": "Matchmaking arcade game rooms where users play interactive mini-games and text anonymously."
+    },
+    "ai_companion_conversations/{userId}": {
+      "schema": { "$ref": "#/entities/CompanionConversation" },
+      "description": "Personal secure AI romantic companion conversations strictly for premium users."
+    },
+    "soul_connections/{connectionId}": {
+      "schema": { "$ref": "#/entities/SoulConnection" },
+      "description": "Opposite gender connected pairing chambers and personal chats."
+    },
+    "user_templates/{templateId}": {
+      "schema": { "$ref": "#/entities/UserTemplate" },
+      "description": "User shared creative templates subject to AI review."
+    }
+  }
+}

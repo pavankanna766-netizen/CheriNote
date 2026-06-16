@@ -1,0 +1,6 @@
+{
+  "name": "CheriNotes",
+  "description": "CheriNotes turns your deepest feelings into interactive, romantic digital keepsakes. Modern, private, and unapologetically charming with viral cursor effects.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

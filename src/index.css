@@ -1,0 +1,49 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
+
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Playfair Display", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-surface: #fff8f7;
+  --color-surface-dim: #e0d8d8;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #faf2f2;
+  --color-surface-container: #f4ecec;
+  --color-surface-container-high: #eee6e6;
+  --color-surface-container-highest: #e8e1e1;
+  --color-on-surface: #1e1b1b;
+  --color-on-surface-variant: #514345;
+  
+  --color-primary: #864e5a;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #ffb7c5;
+  --color-on-primary-container: #7b4551;
+  
+  --color-secondary: #bb0026;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #e41d37;
+  --color-on-secondary-container: #fffbff;
+  
+  --color-primary-fixed: #ffd9df;
+  --color-primary-fixed-dim: #fbb3c1;
+  --color-on-primary-fixed: #360c19;
+}
+
+@layer utilities {
+  .ribbon-divider {
+    height: 40px;
+    background-image: radial-gradient(circle at 10px 10px, transparent 10px, #ffd9df 11px);
+    background-size: 20px 20px;
+    mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+  }
+  
+  .vintage-card-texture {
+    background-color: #fff8f7;
+    background-image: radial-gradient(#d6c2c4 0.5px, transparent 0.5px);
+    background-size: 24px 24px;
+  }
+}

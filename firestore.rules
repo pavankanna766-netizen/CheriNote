@@ -1,0 +1,311 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // HELPER FUNCTIONS
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // ENTITY SCHEMAS & VALIDATION BLUEPRINTS
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'photoUrl'])
+        && data.keys().size() <= 13
+        && data.uid is string && data.uid.size() <= 128
+        && data.name is string && data.name.size() <= 100
+        && data.email is string && data.email.size() <= 150
+        && data.photoUrl is string && data.photoUrl.size() <= 500
+        && (!('mobileNumber' in data) || (data.mobileNumber is string && data.mobileNumber.size() <= 20))
+        && (!('isPro' in data) || data.isPro is bool)
+        && (!('activePlan' in data) || (data.activePlan is string && data.activePlan in ['none', 'single', 'monthly', 'lifetime']))
+        && (!('unlockedTemplates' in data) || data.unlockedTemplates is list)
+        && (!('bio' in data) || (data.bio is string && data.bio.size() <= 200))
+        && (!('gender' in data) || (data.gender is string && data.gender.size() <= 50))
+        && (!('isVerified' in data) || data.isVerified is bool);
+    }
+
+    function isValidCustomProposal(data) {
+      return data.keys().hasAll([
+          'id', 'receiverName', 'senderName', 'message', 'themeIndex', 
+          'viralEffects', 'yesClicked', 'noAttempts', 'isPrivate', 
+          'likesList', 'likesCount', 'viewsCount', 'authorId', 'authorName', 'createdAt'
+        ])
+        && data.keys().size() <= 17
+        && data.id is string && data.id.size() <= 128
+        && data.receiverName is string && data.receiverName.size() <= 100
+        && data.senderName is string && data.senderName.size() <= 100
+        && data.message is string && data.message.size() <= 2000
+        && data.themeIndex is int
+        && data.viralEffects is bool
+        && data.yesClicked is bool
+        && data.noAttempts is int
+        && data.isPrivate is bool
+        && data.likesList is list
+        && data.likesList.size() <= 1000
+        && data.likesCount is int
+        && data.viewsCount is int
+        && (data.authorId == null || (data.authorId is string && data.authorId.size() <= 128))
+        && data.authorName is string && data.authorName.size() <= 128
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && (!('templateId' in data) || data.templateId == null || (data.templateId is string && data.templateId.size() <= 128))
+        && (!('templateImageUrl' in data) || data.templateImageUrl == null || (data.templateImageUrl is string && data.templateImageUrl.size() <= 1000));
+    }
+
+    function isValidRealtimeNotification(data) {
+      return data.keys().hasAll(['id', 'title', 'message', 'type', 'isRead', 'createdAt'])
+        && data.keys().size() == 6
+        && data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() <= 100
+        && data.message is string && data.message.size() <= 500
+        && data.type is string && data.type in ['seal', 'view', 'like', 'system']
+        && data.isRead is bool
+        && data.createdAt is string && data.createdAt.size() <= 50;
+    }
+
+    function isValidSystemUpdateLog(data) {
+      return data.keys().hasAll(['id', 'title', 'content', 'date', 'author'])
+        && data.keys().size() == 5
+        && data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() <= 150
+        && data.content is string && data.content.size() <= 2000
+        && data.date is string && data.date.size() <= 30
+        && data.author is string && data.author.size() <= 100;
+    }
+
+    function isValidCrushLetter(data) {
+      return data.keys().hasAll(['id', 'crushName', 'displayName', 'senderName', 'message', 'createdAt', 'reactions', 'replies', 'likesList', 'isPublished'])
+        && data.keys().size() == 10
+        && data.id is string && data.id.size() <= 128
+        && data.crushName is string && data.crushName.size() <= 150
+        && data.displayName is string && data.displayName.size() <= 150
+        && data.senderName is string && data.senderName.size() <= 150
+        && data.message is string && data.message.size() <= 3000
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.reactions is list
+        && data.replies is list
+        && data.likesList is list
+        && data.isPublished is bool;
+    }
+
+    function isValidSoulConnection(data) {
+      return data.keys().hasAll(['id', 'senderId', 'senderName', 'senderGender', 'receiverId', 'receiverName', 'receiverGender', 'status', 'createdAt', 'messages'])
+        && data.keys().size() == 10
+        && data.id is string && data.id.size() <= 256
+        && data.senderId is string && data.senderId.size() <= 128
+        && data.senderName is string && data.senderName.size() <= 150
+        && data.senderGender is string && data.senderGender.size() <= 50
+        && data.receiverId is string && data.receiverId.size() <= 128
+        && data.receiverName is string && data.receiverName.size() <= 150
+        && data.receiverGender is string && data.receiverGender.size() <= 50
+        && data.status is string && data.status in ['pending', 'accepted']
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.messages is list;
+    }
+
+    function isValidGameRoom(data) {
+      return data.keys().hasAll([
+          'id', 'player1Id', 'player1Name', 'player1Gender', 'player1Preference',
+          'player2Id', 'player2Name', 'player2Gender', 'player2Preference',
+          'gameType', 'status', 'board', 'turn', 'winner', 'messages', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().size() <= 23
+        && data.id is string && data.id.size() <= 128
+        && data.player1Id is string && data.player1Id.size() <= 128
+        && data.player1Name is string && data.player1Name.size() <= 100
+        && data.player1Gender is string && data.player1Gender.size() <= 50
+        && data.player1Preference is string && data.player1Preference.size() <= 50
+        && (data.player2Id == null || (data.player2Id is string && data.player2Id.size() <= 128))
+        && data.player2Name is string && data.player2Name.size() <= 100
+        && data.player2Gender is string && data.player2Gender.size() <= 50
+        && data.player2Preference is string && data.player2Preference.size() <= 50
+        && data.gameType is string && data.gameType in ['tic-tac-toe', 'heart-matcher', 'affinity-pulse']
+        && data.status is string && data.status in ['waiting', 'active', 'ended']
+        && data.board is list
+        && data.board.size() <= 20
+        && data.turn is string && data.turn.size() <= 128
+        && (data.winner == null || (data.winner is string && data.winner.size() <= 128))
+        && data.messages is list
+        && data.messages.size() <= 1000
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.updatedAt is string && data.updatedAt.size() <= 50
+        && (!('player1Matches' in data) || data.player1Matches is int)
+        && (!('player2Matches' in data) || data.player2Matches is int)
+        && (!('p1AffinityAnswers' in data) || data.p1AffinityAnswers is list)
+        && (!('p2AffinityAnswers' in data) || data.p2AffinityAnswers is list);
+    }
+
+    function isValidCompanionConversation(data) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'aiName', 'personality', 'relationshipType', 'focusArea', 'messages', 'lastUpdatedAt', 'createdAt'
+        ])
+        && data.keys().size() == 9
+        && data.id is string && data.id.size() <= 128
+        && data.ownerId is string && data.ownerId.size() <= 128
+        && data.aiName is string && data.aiName.size() <= 100
+        && data.personality is string && data.personality.size() <= 100
+        && data.relationshipType is string && data.relationshipType.size() <= 100
+        && data.focusArea is string && data.focusArea.size() <= 100
+        && data.messages is list
+        && data.messages.size() <= 1000
+        && data.lastUpdatedAt is string && data.lastUpdatedAt.size() <= 50
+        && data.createdAt is string && data.createdAt.size() <= 50;
+    }
+
+    function isValidUserTemplate(data) {
+      return data.keys().hasAll([
+          'id', 'userId', 'authorName', 'title', 'description', 'category', 'tag', 'imageUrl', 'isPremium', 'createdAt', 'status'
+        ])
+        && data.keys().size() <= 12
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.authorName is string && data.authorName.size() <= 100
+        && data.title is string && data.title.size() <= 100
+        && data.description is string && data.description.size() <= 300
+        && data.category is string && data.category in ['Sweet', 'Sassy', 'Spooky']
+        && data.tag is string && data.tag in ['Popular', 'Trending', 'New Arrival', 'Classic']
+        && data.imageUrl is string && data.imageUrl.size() <= 500
+        && data.isPremium is bool
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.status is string && data.status in ['pending', 'verified', 'rejected']
+        && (!('aiFeedback' in data) || (data.aiFeedback is string && data.aiFeedback.size() <= 500));
+    }
+
+    // COLLECTION MATCH BLOCKS
+
+    // User Profile rules
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && isValidUserProfile(incoming());
+      allow update: if isOwner(userId) && isValidUserProfile(incoming());
+      allow delete: if isOwner(userId);
+    }
+
+    match /premium_subscribers/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Proposal cards rules
+    match /proposals/{proposalId} {
+      allow read: if true; // anyone with the specific link can view or list public proposals
+
+      allow create: if isValidId(proposalId) && isSignedIn() 
+        && incoming().authorId == request.auth.uid 
+        && isValidCustomProposal(incoming());
+
+      allow update: if isValidId(proposalId) 
+        && isValidCustomProposal(incoming()) 
+        && (
+          // Action 1: Owner updates draft
+          (isSignedIn() && existing().authorId == request.auth.uid && incoming().authorId == request.auth.uid)
+          ||
+          // Action 2: View count incremented
+          (incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount']))
+          ||
+          // Action 3: Likes/Likes list toggled
+          (incoming().diff(existing()).affectedKeys().hasOnly(['likesList', 'likesCount']))
+          ||
+          // Action 4: Recipient response tracking (click Yes / No evasions)
+          (incoming().diff(existing()).affectedKeys().hasOnly(['yesClicked', 'noAttempts']))
+        );
+
+      allow delete: if isSignedIn() && existing().authorId == request.auth.uid;
+    }
+
+    // Specific user notifications
+    match /users/{userId}/notifications/{notificationId} {
+      allow read: if isOwner(userId);
+      allow create: if isValidId(notificationId) && isValidRealtimeNotification(incoming());
+      allow update: if isValidId(notificationId) && isOwner(userId) && isValidRealtimeNotification(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['isRead']);
+      allow delete: if isOwner(userId);
+    }
+
+    // Public update changelogs
+    match /update_logs/{logId} {
+      allow read: if true;
+      allow write: if false; // Managed administratively only
+    }
+
+    // Dynamic Note Templates - customizable by the Admin
+    match /templates/{templateId} {
+      allow read: if true;
+      allow write: if isSignedIn() && 'email' in request.auth.token && request.auth.token.email == 'pavankanna766@gmail.com';
+    }
+
+    // Dynamic Admin Settings and Pricing configurations
+    match /settings/{settingsId} {
+      allow read: if true;
+      allow write: if isSignedIn() && 'email' in request.auth.token && request.auth.token.email == 'pavankanna766@gmail.com';
+    }
+
+    // Crush Space Collection Rules
+    match /crush_letters/{letterId} {
+      allow read: if true;
+      allow create: if isValidId(letterId) && isValidCrushLetter(incoming());
+      allow update: if isValidId(letterId) && isValidCrushLetter(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['reactions', 'replies', 'likesList'])
+      );
+      allow delete: if false;
+    }
+
+    // Opposite-gender personal connections and private chats
+    match /soul_connections/{connectionId} {
+      allow read: if isSignedIn() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(connectionId) && isValidSoulConnection(incoming()) && incoming().senderId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(connectionId) && isValidSoulConnection(incoming()) && (
+        resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid
+      ) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'messages'])
+      );
+      allow delete: if isSignedIn() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
+    }
+
+    // Anonymous game room rules for Lover Arcade
+    match /lover_game_rooms/{roomId} {
+      allow read: if isSignedIn();
+      allow create: if isValidId(roomId) && isSignedIn() && incoming().player1Id == request.auth.uid && isValidGameRoom(incoming());
+      allow update: if isValidId(roomId) && isSignedIn() && isValidGameRoom(incoming()) && (
+        incoming().player1Id == existing().player1Id
+        && (existing().player2Id == null || existing().player2Id == request.auth.uid || existing().player1Id == request.auth.uid || incoming().player2Id == existing().player2Id)
+      );
+      allow delete: if isSignedIn() && existing().player1Id == request.auth.uid;
+    }
+
+    // AI Romantic Companion and Well-being Conversations Secure Gate
+    match /ai_companion_conversations/{userId} {
+      allow get: if isSignedIn() && userId == request.auth.uid;
+      allow create: if isSignedIn() && userId == request.auth.uid && isValidId(userId) && isValidCompanionConversation(incoming()) && incoming().ownerId == request.auth.uid;
+      allow update: if isSignedIn() && userId == request.auth.uid && isValidId(userId) && isValidCompanionConversation(incoming()) && incoming().ownerId == request.auth.uid;
+      allow delete: if isSignedIn() && userId == request.auth.uid;
+    }
+
+    // User-submitted love templates with AI verification
+    match /user_templates/{templateId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isValidId(templateId) && isValidUserTemplate(incoming()) && incoming().userId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(templateId) && isValidUserTemplate(incoming()) 
+        && (existing().userId == request.auth.uid || ('email' in request.auth.token && request.auth.token.email == 'pavankanna766@gmail.com'));
+      allow delete: if isSignedIn() && (existing().userId == request.auth.uid || ('email' in request.auth.token && request.auth.token.email == 'pavankanna766@gmail.com'));
+    }
+  }
+}
