@@ -34,7 +34,7 @@ function getGenAi(): GoogleGenAI {
 }
 
 // Resilient promise wrapper that enforces a clean timeout for Gemini requests
-function withTimeout<T>(promise: Promise<T>, ms: number = 12000, contextName: string = "AI Request"): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms: number = 35000, contextName: string = "AI Request"): Promise<T> {
   let timeoutId: NodeJS.Timeout;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -276,7 +276,7 @@ Determine:
           }
         }
       })),
-      15000,
+      35000,
       "Chat diagnostic image analysis"
     );
 
@@ -404,7 +404,7 @@ Format all responses with sweet romantic coquette styling. Keep answers concise,
           temperature: 1.0,
         }
       })),
-      14000,
+      35000,
       "AI Companion Chat"
     );
 
@@ -472,7 +472,7 @@ Please check the title and description to make sure it contains clean, appropria
           }
         }
       })),
-      10000,
+      35000,
       "Template Verification"
     );
 
@@ -527,7 +527,7 @@ Assign a delulu percentage score from 0 to 100, and a witty, sarcastic, dramatic
           }
         }
       })),
-      10000,
+      35000,
       "Delulu Meter Analysis"
     );
 
