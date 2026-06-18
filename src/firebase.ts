@@ -446,6 +446,9 @@ export class AppDatabase {
       if (profile.isVerified !== undefined) {
         (cleanProfile as any).isVerified = profile.isVerified;
       }
+      if (profile.lastActiveAt) {
+        (cleanProfile as any).lastActiveAt = profile.lastActiveAt;
+      }
       await setDoc(docRef, cleanProfile, { merge: true });
 
       if (cleanProfile.isPro || cleanProfile.activePlan !== "none") {

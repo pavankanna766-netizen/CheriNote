@@ -42,6 +42,7 @@ export interface UserProfile {
   bio?: string;
   gender?: string;
   isVerified?: boolean;
+  lastActiveAt?: string;
 }
 
 export interface UserTemplate {

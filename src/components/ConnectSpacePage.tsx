@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Heart, User, CheckCircle2, XCircle, Send, ShieldAlert, Sparkles, MessageSquare, Trash2, Zap } from "lucide-react";
-import { collection, query, where, onSnapshot, getDocs, setDoc, doc } from "firebase/firestore";
+import { collection, query, where, onSnapshot, getDocs, setDoc, doc, getDocsFromServer } from "firebase/firestore";
 import { AppDatabase, db } from "../firebase";
 import { UserProfile, SoulConnection, ConnectionMessage } from "../types";
 
@@ -169,6 +169,31 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user, onNavi
     }
   };
 
+  // Presence heartbeat: update our lastActiveAt in Firestore when we load or stay on this matchmaking page
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const updatePresence = async () => {
+      try {
+        const updatedUser = {
+          ...user,
+          lastActiveAt: new Date().toISOString()
+        };
+        await AppDatabase.saveUserProfile(updatedUser);
+      } catch (e) {
+        console.warn("Presence heartbeat failed:", e);
+      }
+    };
+
+    // Update immediately on mount
+    updatePresence();
+
+    // Update every 8 seconds to keep presence fresh
+    const interval = setInterval(updatePresence, 8000);
+
+    return () => clearInterval(interval);
+  }, [user]);
+
   // 1. Listen for Soul Connections involving the current user in absolute REALTIME (onSnapshot)
   useEffect(() => {
     if (!user?.uid) {
@@ -226,14 +251,8 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user, onNavi
       return;
     }
 
-    const unsubUsers = onSnapshot(query(collection(db, "users")), (snapshot) => {
-      const allUsers: UserProfile[] = [];
-      snapshot.forEach((docSnap) => {
-        const u = docSnap.data() as UserProfile;
-        allUsers.push(u);
-      });
-
-      const availableCandidates = allUsers.filter((u) => {
+    const processUserSnapshot = (usersList: UserProfile[]) => {
+      const availableCandidates = usersList.filter((u) => {
         // Exclude ourselves
         if (u.uid === user.uid) return false;
 
@@ -254,12 +273,50 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user, onNavi
         return true; // "everyone" matches anyone else who registered
       });
 
+      // Sort by last active so active users appear top
+      availableCandidates.sort((a, b) => {
+        const timeA = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+        const timeB = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+        return timeB - timeA;
+      });
+
       setCandidates(availableCandidates);
+    };
+
+    // Keep real-time reactive snapshot
+    const unsubUsers = onSnapshot(query(collection(db, "users")), (snapshot) => {
+      const allUsers: UserProfile[] = [];
+      snapshot.forEach((docSnap) => {
+        const u = docSnap.data() as UserProfile;
+        allUsers.push(u);
+      });
+      processUserSnapshot(allUsers);
     }, (error) => {
-      console.warn("Real-time candidates list failed:", error);
+      console.warn("Real-time candidates list onSnapshot failed:", error);
     });
 
-    return () => unsubUsers();
+    // High frequency backup fetch to bypass any home router connection buffers and trigger instant detection
+    const serverFetchQuery = query(collection(db, "users"));
+    const serverFetchInterval = setInterval(async () => {
+      if (currentConnection) return;
+      try {
+        const snap = await getDocsFromServer(serverFetchQuery);
+        const serverUsers: UserProfile[] = [];
+        snap.forEach((docSnap) => {
+          serverUsers.push(docSnap.data() as UserProfile);
+        });
+        if (serverUsers.length > 0) {
+          processUserSnapshot(serverUsers);
+        }
+      } catch (err) {
+        console.warn("Direct server fetch fallback log:", err);
+      }
+    }, 3000);
+
+    return () => {
+      unsubUsers();
+      clearInterval(serverFetchInterval);
+    };
   }, [user, matchPreference, currentConnection]);
 
   // Scroll to bottom when messages list increases
@@ -551,43 +608,60 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user, onNavi
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {candidates.map((cand) => (
-                <div
-                  key={cand.uid}
-                  className="bg-surface-container-lowest border border-primary/10 p-5 rounded-2xl shadow-2xs flex flex-col justify-between hover:shadow-xs transition duration-300"
-                  id={`candidate-profile-${cand.uid}`}
-                >
-                  <div className="flex items-start gap-4">
-                    <img
-                      src={cand.photoUrl}
-                      alt={cand.name}
-                      referrerPolicy="no-referrer"
-                      className="w-12 h-12 rounded-full object-cover border border-secondary shrink-0"
-                    />
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-display font-bold text-on-surface text-sm">{cand.name}</h4>
-                        <span className="text-[8px] bg-pink-100/60 border border-pink-200 text-pink-700 font-bold font-mono px-1.5 py-0.5 rounded-full">
-                          {cand.gender}
-                        </span>
+              {candidates.map((cand) => {
+                const online = cand.lastActiveAt ? (Date.now() - new Date(cand.lastActiveAt).getTime() < 20000) : false;
+                return (
+                  <div
+                    key={cand.uid}
+                    className="bg-surface-container-lowest border border-primary/10 p-5 rounded-2xl shadow-2xs flex flex-col justify-between hover:shadow-xs transition duration-300"
+                    id={`candidate-profile-${cand.uid}`}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="relative shrink-0">
+                        <img
+                          src={cand.photoUrl}
+                          alt={cand.name}
+                          referrerPolicy="no-referrer"
+                          className="w-12 h-12 rounded-full object-cover border border-secondary"
+                        />
+                        {online && (
+                          <span className="absolute -bottom-0.5 -right-0.5 block h-3.5 w-3.5 rounded-full bg-emerald-500 ring-2 ring-white animate-pulse" />
+                        )}
                       </div>
-                      <p className="text-xs text-on-surface-variant italic leading-relaxed">
-                        {cand.bio ? `"${cand.bio}"` : "This romantic partner hasn't written a biography yet."}
-                      </p>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-display font-bold text-on-surface text-sm">{cand.name}</h4>
+                          <span className="text-[8px] bg-pink-100/60 border border-pink-200 text-pink-700 font-bold font-mono px-1.5 py-0.5 rounded-full">
+                            {cand.gender}
+                          </span>
+                          {online ? (
+                            <span className="text-[9px] text-emerald-600 font-mono font-black flex items-center gap-1">
+                              ● Online
+                            </span>
+                          ) : cand.lastActiveAt ? (
+                            <span className="text-[8px] text-on-surface-variant font-mono">
+                              Active {Math.max(1, Math.round((Date.now() - new Date(cand.lastActiveAt).getTime()) / 60000))}m ago
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-xs text-on-surface-variant italic leading-relaxed">
+                          {cand.bio ? `"${cand.bio}"` : "This romantic partner hasn't written a biography yet."}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-primary/5 flex justify-end">
+                      <button
+                        onClick={() => handleRequestConnect(cand)}
+                        className="px-4 py-2 bg-secondary text-white hover:bg-secondary-dim text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        id={`request-connect-${cand.uid}`}
+                      >
+                        <Heart size={12} fill="currentColor" /> Send Match Invitation
+                      </button>
                     </div>
                   </div>
-
-                  <div className="mt-4 pt-3 border-t border-primary/5 flex justify-end">
-                    <button
-                      onClick={() => handleRequestConnect(cand)}
-                      className="px-4 py-2 bg-secondary text-white hover:bg-secondary-dim text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-xs"
-                      id={`request-connect-${cand.uid}`}
-                    >
-                      <Heart size={12} fill="currentColor" /> Send Match Invitation
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
