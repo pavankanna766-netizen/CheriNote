@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Heart, User, CheckCircle2, XCircle, Send, ShieldAlert, Sparkles, MessageSquare, Trash2, Zap } from "lucide-react";
-import { AppDatabase } from "../firebase";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { AppDatabase, db } from "../firebase";
 import { UserProfile, SoulConnection, ConnectionMessage } from "../types";
 
 interface ConnectSpacePageProps {
@@ -19,53 +20,98 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user, onNavi
   const [selectedGender, setSelectedGender] = useState<string>("Female");
   const [isUpdatingGender, setIsUpdatingGender] = useState<boolean>(false);
 
-  // Polling for connection state updates
-  const loadConnectionState = async () => {
-    try {
-      const conn = await AppDatabase.getSoulConnection(user.uid);
-      setCurrentConnection(conn);
-
-      // If we don't have an active accepted/pending connection, lookup opposite gender candidates
-      if (!conn) {
-        const allUsers = await AppDatabase.getAllUsers();
-        // Get all current connections to see who is already busy
-        const connectionsPath = "soul_connections";
-        
-        const availableCandidates = allUsers.filter(u => {
-          if (u.uid === user.uid) return false;
-          
-          if (matchPreference === "opposite") {
-            if (!u.gender || !user.gender) return false; // Both must have gender for opposite match
-            const userGender = (user.gender || "Female").trim().toLowerCase();
-            const candGender = (u.gender || "Male").trim().toLowerCase();
-            
-            if (userGender.startsWith("female") || userGender === "f") {
-              return candGender.startsWith("male") || candGender === "m";
-            }
-            if (userGender.startsWith("male") || userGender === "m") {
-              return candGender.startsWith("female") || candGender === "f";
-            }
-            // If user gender is non-binary/other, match anyone who isn't the same gender
-            return candGender !== userGender;
-          }
-          return true; // "everyone" preference matches any other users even if they have no gender defined
-        });
-
-        setCandidates(availableCandidates);
-      }
-    } catch (e) {
-      console.error("Failed to load matchmaker context:", e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // 1. Listen for Soul Connections involving the current user in absolute REALTIME (onSnapshot)
   useEffect(() => {
-    loadConnectionState();
-    // Continuous polling for real-time conversation responsiveness
-    const interval = setInterval(loadConnectionState, 3000);
-    return () => clearInterval(interval);
-  }, [user, matchPreference]);
+    if (!user?.uid) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const path = "soul_connections";
+    const q1 = query(collection(db, path), where("senderId", "==", user.uid));
+    const q2 = query(collection(db, path), where("receiverId", "==", user.uid));
+
+    let conn1: SoulConnection | null = null;
+    let conn2: SoulConnection | null = null;
+
+    const syncConnectionsState = () => {
+      const activeConn = conn1 || conn2;
+      setCurrentConnection(activeConn);
+      setLoading(false);
+    };
+
+    const unsub1 = onSnapshot(q1, (snapshot) => {
+      conn1 = null;
+      snapshot.forEach((docSnap) => {
+        conn1 = docSnap.data() as SoulConnection;
+      });
+      syncConnectionsState();
+    }, (error) => {
+      console.warn("Real-time soul connection (sender) failed:", error);
+      setLoading(false);
+    });
+
+    const unsub2 = onSnapshot(q2, (snapshot) => {
+      conn2 = null;
+      snapshot.forEach((docSnap) => {
+        conn2 = docSnap.data() as SoulConnection;
+      });
+      syncConnectionsState();
+    }, (error) => {
+      console.warn("Real-time soul connection (receiver) failed:", error);
+      setLoading(false);
+    });
+
+    return () => {
+      unsub1();
+      unsub2();
+    };
+  }, [user?.uid]);
+
+  // 2. Listen for registered Users in absolute REALTIME (onSnapshot) to keep Candidates auto-synced
+  useEffect(() => {
+    // If the user already has an active or pending connection chamber, clear candidates list and bypass
+    if (currentConnection) {
+      setCandidates([]);
+      return;
+    }
+
+    const unsubUsers = onSnapshot(query(collection(db, "users")), (snapshot) => {
+      const allUsers: UserProfile[] = [];
+      snapshot.forEach((docSnap) => {
+        const u = docSnap.data() as UserProfile;
+        allUsers.push(u);
+      });
+
+      const availableCandidates = allUsers.filter((u) => {
+        // Exclude ourselves
+        if (u.uid === user.uid) return false;
+
+        if (matchPreference === "opposite") {
+          if (!u.gender || !user.gender) return false; // Both must have gender for opposite match
+          const userGender = (user.gender || "Female").trim().toLowerCase();
+          const candGender = (u.gender || "Male").trim().toLowerCase();
+
+          if (userGender.startsWith("female") || userGender === "f") {
+            return candGender.startsWith("male") || candGender === "m";
+          }
+          if (userGender.startsWith("male") || userGender === "m") {
+            return candGender.startsWith("female") || candGender === "f";
+          }
+          // If user gender is non-binary/other, match anyone who isn't the same gender
+          return candGender !== userGender;
+        }
+        return true; // "everyone" matches anyone else who registered
+      });
+
+      setCandidates(availableCandidates);
+    }, (error) => {
+      console.warn("Real-time candidates list failed:", error);
+    });
+
+    return () => unsubUsers();
+  }, [user, matchPreference, currentConnection]);
 
   // Scroll to bottom when messages list increases
   useEffect(() => {
@@ -85,7 +131,6 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user, onNavi
         candidate.name,
         candidate.gender || "Male"
       );
-      await loadConnectionState();
     } catch (err) {
       console.error("Connection initiation failed:", err);
     } finally {
@@ -98,7 +143,6 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user, onNavi
     try {
       setLoading(true);
       await AppDatabase.acceptSoulConnection(currentConnection.id);
-      await loadConnectionState();
     } catch (err) {
       console.error("Connect acceptance failed:", err);
     } finally {
@@ -113,7 +157,6 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user, onNavi
         setLoading(true);
         await AppDatabase.cancelSoulConnection(currentConnection.id);
         setCurrentConnection(null);
-        await loadConnectionState();
       } catch (err) {
         console.error("Disconnect trigger failed:", err);
       } finally {
