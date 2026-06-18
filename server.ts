@@ -50,6 +50,28 @@ function withTimeout<T>(promise: Promise<T>, ms: number = 12000, contextName: st
   ]);
 }
 
+// Resilient helper to invoke generateContent with exponential backoff / retries for transient errors (like 503, UNAVAILABLE)
+async function generateContentWithRetry(aiCall: () => Promise<any>, maxRetries: number = 3, initialDelayMs: number = 550): Promise<any> {
+  let attempt = 0;
+  while (attempt < maxRetries) {
+    try {
+      return await aiCall();
+    } catch (err: any) {
+      attempt++;
+      const errMsg = err?.message || String(err);
+      const isTransient = errMsg.includes("503") || errMsg.includes("UNAVAILABLE") || errMsg.includes("429") || errMsg.includes("high demand") || errMsg.includes("rate limit") || errMsg.includes("overload");
+      
+      if (isTransient && attempt < maxRetries) {
+        const delay = initialDelayMs * Math.pow(2, attempt - 1);
+        console.warn(`Transient Gemini error encountered (attempt ${attempt}/${maxRetries}): ${errMsg}. Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 // Safely normalizes public user/model turns to guarantee strict alternating behavior as required by Gemini
 function formatChatContents(messages: any[], newMessageText: string, newImageBase64?: string | null): any[] {
   const rawList: { role: "user" | "model"; text: string; image?: string | null }[] = [];
@@ -132,7 +154,7 @@ app.post("/api/ai/analyze-confession", async (req, res) => {
 Categorize the confession and provide a short poetic assessment.`;
 
     const response = await withTimeout(
-      ai.models.generateContent({
+      generateContentWithRetry(() => ai.models.generateContent({
         model: "gemini-3.5-flash",
         contents: prompt,
         config: {
@@ -153,7 +175,7 @@ Categorize the confession and provide a short poetic assessment.`;
             required: ["category", "assessment"]
           }
         }
-      }),
+      })),
       12000,
       "Confession Analysis"
     );
@@ -218,7 +240,7 @@ Determine:
 6. A brief, funny, high-accuracy relationship assessment note.`;
 
     const response = await withTimeout(
-      ai.models.generateContent({
+      generateContentWithRetry(() => ai.models.generateContent({
         model: "gemini-3.5-flash",
         contents: {
           parts: [
@@ -253,7 +275,7 @@ Determine:
             ]
           }
         }
-      }),
+      })),
       15000,
       "Chat diagnostic image analysis"
     );
@@ -293,7 +315,7 @@ ${JSON.stringify(letters)}
 Calculate the word counts, extract key romantic vocabularies, compute heartbreak risk parameters, and detect the single most used emotional raw word.`;
 
     const response = await withTimeout(
-      ai.models.generateContent({
+      generateContentWithRetry(() => ai.models.generateContent({
         model: "gemini-3.5-flash",
         contents: prompt,
         config: {
@@ -311,7 +333,7 @@ Calculate the word counts, extract key romantic vocabularies, compute heartbreak
             required: ["lettersSent", "wordsWritten", "mostUsedWord", "averageHeartbreakRisk", "coquetteTagline"]
           }
         }
-      }),
+      })),
       12000,
       "Love Wrapped diagnostics"
     );
@@ -372,16 +394,16 @@ Format all responses with sweet romantic coquette styling. Keep answers concise,
     // Format chat history securely utilizing the alternating turn polarizer
     const contents = formatChatContents(recentMessages, newMessage, newImage);
     
-    // Generate response utilizing gemini-3.5-flash with timing safety
+    // Generate response utilizing gemini-3.5-flash with timing and retry safety
     const response = await withTimeout(
-      ai.models.generateContent({
+      generateContentWithRetry(() => ai.models.generateContent({
         model: "gemini-3.5-flash",
         contents: contents,
         config: {
           systemInstruction: systemInstruction,
           temperature: 1.0,
         }
-      }),
+      })),
       14000,
       "AI Companion Chat"
     );
@@ -420,7 +442,7 @@ Category Suggestion: "${category}"
 Please check the title and description to make sure it contains clean, appropriate, and fun love, sass, valentine, friendship, or sweet themes. Safe sarcasm and spooky gothic declarations are great. Explicitly filter out graphic mature NSFW content, hate speech, threats, or cyberbullying. Match the response schema.`;
 
     const response = await withTimeout(
-      ai.models.generateContent({
+      generateContentWithRetry(() => ai.models.generateContent({
         model: "gemini-3.5-flash",
         contents: prompt,
         config: {
@@ -449,7 +471,7 @@ Please check the title and description to make sure it contains clean, appropria
             required: ["status", "aiFeedback", "category", "tag"]
           }
         }
-      }),
+      })),
       10000,
       "Template Verification"
     );
@@ -483,7 +505,7 @@ app.post("/api/ai/delulu-meter", async (req, res) => {
 Assign a delulu percentage score from 0 to 100, and a witty, sarcastic, dramatic, or funny diagnosis (TikTok goldmine style!). Make it highly entertaining, dryly humorous, and extremely relatable.`;
 
     const response = await withTimeout(
-      ai.models.generateContent({
+      generateContentWithRetry(() => ai.models.generateContent({
         model: "gemini-3.5-flash",
         contents: prompt,
         config: {
@@ -504,7 +526,7 @@ Assign a delulu percentage score from 0 to 100, and a witty, sarcastic, dramatic
             required: ["score", "diagnosis"]
           }
         }
-      }),
+      })),
       10000,
       "Delulu Meter Analysis"
     );

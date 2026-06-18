@@ -13,6 +13,7 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [chatMessage, setChatMessage] = useState("");
   const chatBottomRef = useRef<HTMLDivElement>(null);
+  const [matchPreference, setMatchPreference] = useState<"opposite" | "everyone">("everyone");
 
   // Polling for connection state updates
   const loadConnectionState = async () => {
@@ -25,23 +26,18 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user }) => {
         const allUsers = await AppDatabase.getAllUsers();
         // Get all current connections to see who is already busy
         const connectionsPath = "soul_connections";
-        // Filter out candidates:
-        // 1. Must not be the logged in user
-        // 2. Must be opposite gender
-        // Let's implement opposite matching:
-        // Male matches Female, Female matches Male.
-        // If Non-Binary or Other, match other groups for inclusive romance.
-        const isOpposite = (candidate: UserProfile) => {
-          if (user.gender === "Female") return candidate.gender === "Male";
-          if (user.gender === "Male") return candidate.gender === "Female";
-          // If user gender is non-binary/other, match anyone who isn't the same gender
-          return candidate.gender !== user.gender;
-        };
-
+        
         const availableCandidates = allUsers.filter(u => {
           if (u.uid === user.uid) return false;
           if (!u.gender) return false; // candidate must have a gender defined
-          return isOpposite(u);
+          
+          if (matchPreference === "opposite") {
+            if (user.gender === "Female") return u.gender === "Male";
+            if (user.gender === "Male") return u.gender === "Female";
+            // If user gender is non-binary/other, match anyone who isn't the same gender
+            return u.gender !== user.gender;
+          }
+          return true; // "everyone" preference matches any other gender
         });
 
         setCandidates(availableCandidates);
@@ -58,7 +54,7 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user }) => {
     // Continuous polling for real-time conversation responsiveness
     const interval = setInterval(loadConnectionState, 3000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, [user, matchPreference]);
 
   // Scroll to bottom when messages list increases
   useEffect(() => {
@@ -187,13 +183,39 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user }) => {
       {/* State A: No pending or active connection */}
       {!loading && !currentConnection && (
         <div className="w-full space-y-6">
-          <div className="bg-surface-container-low border border-primary/5 rounded-2xl p-6 text-center shadow-2xs max-w-md mx-auto">
-            <span className="text-xs font-bold text-secondary-container bg-secondary text-on-secondary px-3 py-1 rounded-full text-[10px] font-mono">
-              My Profile: {user.gender} 
-            </span>
-            <p className="text-xs text-on-surface-variant mt-4 leading-relaxed">
-              We have compiled a directory of registered lovers who are identified with the opposite gender of <b>{user.gender}</b> and are currently unlinked!
-            </p>
+          <div className="bg-surface-container-low border border-primary/5 rounded-2xl p-6 text-center shadow-2xs max-w-md mx-auto space-y-4">
+            <div>
+              <span className="text-xs font-bold text-secondary-container bg-secondary text-on-secondary px-3 py-1 rounded-full text-[10px] font-mono">
+                My Profile: {user.gender} 
+              </span>
+              <p className="text-xs text-on-surface-variant mt-3 leading-relaxed">
+                Connect and match with other lovers live. Open multiple browser tabs using different accounts to test private real-time matchmaking seamlessly!
+              </p>
+            </div>
+            
+            {/* Match preferences selector tab */}
+            <div className="flex justify-center items-center gap-1.5 bg-surface-container-high p-1 rounded-xl border border-primary/10 max-w-xs mx-auto">
+              <button
+                onClick={() => setMatchPreference("opposite")}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-[10.5px] font-extrabold uppercase tracking-wider transition ${
+                  matchPreference === "opposite"
+                    ? "bg-secondary text-white shadow-xs"
+                    : "text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                Opposite Gender
+              </button>
+              <button
+                onClick={() => setMatchPreference("everyone")}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-[10.5px] font-extrabold uppercase tracking-wider transition ${
+                  matchPreference === "everyone"
+                    ? "bg-secondary text-white shadow-xs"
+                    : "text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                Everyone (Testing)
+              </button>
+            </div>
           </div>
 
           <h3 className="text-xs font-bold uppercase tracking-wider text-on-surface-variant border-b border-primary/5 pb-2">
@@ -203,9 +225,11 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user }) => {
           {candidates.length === 0 ? (
             <div className="text-center py-16 bg-surface-container-lowest rounded-2xl border border-dashed border-primary/10">
               <User size={36} className="mx-auto text-on-surface-variant/40 mb-3" />
-              <p className="text-xs font-semibold text-on-surface">Waiting for opposite-gender lovers...</p>
+              <p className="text-xs font-semibold text-on-surface">Waiting for lovers...</p>
               <p className="text-[10px] text-on-surface-variant mt-1 max-w-xs mx-auto leading-relaxed">
-                Currently, there are no unlinked opposite gender users registered with their gender defined. Invite someone to CheriNotes and start a private match!
+                {matchPreference === "opposite" 
+                  ? "Currently, there are no unlinked opposite gender users registered yet. Try switching to 'Everyone (Testing)' to link instantly!"
+                  : "Currently, no other unlinked users are registered. Invite someone or open an incognito/secondary window to register a test user!"}
               </p>
             </div>
           ) : (
