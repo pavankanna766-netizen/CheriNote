@@ -35,7 +35,7 @@ service cloud.firestore {
         && data.uid is string && data.uid.size() <= 128
         && data.name is string && data.name.size() <= 100
         && data.email is string && data.email.size() <= 150
-        && data.photoUrl is string && data.photoUrl.size() <= 500
+        && data.photoUrl is string && data.photoUrl.size() <= 2000000
         && (!('mobileNumber' in data) || (data.mobileNumber is string && data.mobileNumber.size() <= 20))
         && (!('isPro' in data) || data.isPro is bool)
         && (!('activePlan' in data) || (data.activePlan is string && data.activePlan in ['none', 'single', 'monthly', 'lifetime']))
@@ -69,7 +69,7 @@ service cloud.firestore {
         && data.authorName is string && data.authorName.size() <= 128
         && data.createdAt is string && data.createdAt.size() <= 50
         && (!('templateId' in data) || data.templateId == null || (data.templateId is string && data.templateId.size() <= 128))
-        && (!('templateImageUrl' in data) || data.templateImageUrl == null || (data.templateImageUrl is string && data.templateImageUrl.size() <= 1000));
+        && (!('templateImageUrl' in data) || data.templateImageUrl == null || (data.templateImageUrl is string && data.templateImageUrl.size() <= 2000000));
     }
 
     function isValidRealtimeNotification(data) {
@@ -184,7 +184,7 @@ service cloud.firestore {
         && data.description is string && data.description.size() <= 300
         && data.category is string && data.category in ['Sweet', 'Sassy', 'Spooky']
         && data.tag is string && data.tag in ['Popular', 'Trending', 'New Arrival', 'Classic']
-        && data.imageUrl is string && data.imageUrl.size() <= 500
+        && data.imageUrl is string && data.imageUrl.size() <= 2000000
         && data.isPremium is bool
         && data.createdAt is string && data.createdAt.size() <= 50
         && data.status is string && data.status in ['pending', 'verified', 'rejected']

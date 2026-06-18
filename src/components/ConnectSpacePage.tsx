@@ -5,15 +5,19 @@ import { UserProfile, SoulConnection, ConnectionMessage } from "../types";
 
 interface ConnectSpacePageProps {
   user: UserProfile;
+  onNavigate?: (view: string) => void;
+  onUpdateUser?: (updates: Partial<UserProfile>) => void;
 }
 
-export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user }) => {
+export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user, onNavigate, onUpdateUser }) => {
   const [currentConnection, setCurrentConnection] = useState<SoulConnection | null>(null);
   const [candidates, setCandidates] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [chatMessage, setChatMessage] = useState("");
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const [matchPreference, setMatchPreference] = useState<"opposite" | "everyone">("everyone");
+  const [selectedGender, setSelectedGender] = useState<string>("Female");
+  const [isUpdatingGender, setIsUpdatingGender] = useState<boolean>(false);
 
   // Polling for connection state updates
   const loadConnectionState = async () => {
@@ -147,19 +151,69 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user }) => {
 
   // If user has not specified a Gender, lock Connect Space and show Profile redirection instructions
   if (!user.gender) {
+    const handleSaveGenderInline = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!onUpdateUser) return;
+      setIsUpdatingGender(true);
+      try {
+        await onUpdateUser({ gender: selectedGender });
+      } catch (err) {
+        console.error("Failed saving gender inline:", err);
+      } finally {
+        setIsUpdatingGender(false);
+      }
+    };
+
     return (
-      <div className="w-full min-h-[70vh] flex flex-col justify-center items-center py-10 px-4 max-w-md mx-auto text-center space-y-6">
+      <div className="w-full min-h-[70vh] flex flex-col justify-center items-center py-10 px-4 max-w-sm mx-auto text-center space-y-6">
         <div className="w-16 h-16 bg-[#ffeed0] text-secondary rounded-full flex items-center justify-center border-2 border-dashed border-secondary shadow-xs animate-bounce">
           <Heart size={30} fill="currentColor" />
         </div>
         <div className="space-y-2">
-          <h2 className="font-display font-black text-on-surface text-xl">💞 Gender Selection Required</h2>
+          <h2 className="font-display font-black text-on-surface text-xl">💞 Specify Your Gender</h2>
           <p className="text-xs text-on-surface-variant leading-relaxed">
-            To explore matches and connect with opposite genders in our personal chat chambers, you must specify your gender in your Profile!
+            Configure your gender first to unlock opposite-gender matches and private chat rooms in the Matching Chamber.
           </p>
         </div>
-        <div className="bg-surface-container-low p-4 rounded-xl border border-primary/5 text-[10px] text-on-surface-variant font-mono">
-          Go to **My Account** tab → Find **My Gender** select → Set it to Female, Male, or Non-Binary → Commit Changes
+
+        <form onSubmit={handleSaveGenderInline} className="w-full bg-surface-container-low p-6 rounded-2xl border border-primary/5 space-y-4">
+          <div className="space-y-1.5 text-left">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant block">My Gender Identity</label>
+            <select
+              value={selectedGender}
+              onChange={(e) => setSelectedGender(e.target.value)}
+              className="w-full px-3 py-2 bg-white rounded-xl border border-primary/10 text-xs text-on-surface focus:outline-hidden focus:border-secondary transition cursor-pointer"
+              id="inline-gender-select"
+            >
+              <option value="Female">Female ♀</option>
+              <option value="Male">Male ♂</option>
+              <option value="Non-Binary">Non-Binary ⚧</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+
+          <button
+            type="submit"
+            disabled={isUpdatingGender}
+            className="w-full py-2.5 bg-secondary hover:bg-secondary-dim disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-1.5"
+            id="inline-gender-submit"
+          >
+            {isUpdatingGender ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              "Activate My Matchmaker Profile ✨"
+            )}
+          </button>
+        </form>
+
+        <div className="text-xs font-light text-on-surface-variant leading-relaxed">
+          Or, manage additional credential settings on your profile.
+          <button
+            onClick={() => onNavigate && onNavigate("dashboard")}
+            className="text-secondary font-semibold hover:underline bg-transparent border-0 ml-1 cursor-pointer"
+          >
+            Go to Profile
+          </button>
         </div>
       </div>
     );

@@ -540,6 +540,8 @@ export default function App() {
           ) : (
             <ConnectSpacePage 
               user={user}
+              onNavigate={setActiveView}
+              onUpdateUser={handleUpdateProfile}
             />
           )
         )}
