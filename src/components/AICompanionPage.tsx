@@ -80,10 +80,10 @@ export default function AICompanionPage({ user, onUpdateUser, onSetActiveView }:
           throw new Error("Client is currently offline");
         }
 
-        // 2. Race the Firestore document getter call with a 1.5 second timeout to safely prevent indefinite hangs
+        // 2. Race the Firestore document getter call with an 8 second timeout to safely prevent indefinite hangs
         const docSnapPromise = getDoc(doc(db, "ai_companion_conversations", user!.uid));
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error("Timeout waiting for Cloud Sync")), 1500);
+          setTimeout(() => reject(new Error("Timeout waiting for Cloud Sync")), 8000);
         });
 
         const docSnap = await Promise.race([docSnapPromise, timeoutPromise]);

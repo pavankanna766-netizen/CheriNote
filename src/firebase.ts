@@ -2,6 +2,8 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { 
   getFirestore, 
+  initializeFirestore,
+  enableMultiTabIndexedDbPersistence,
   collection, 
   doc, 
   getDoc, 
@@ -36,8 +38,21 @@ const sdkConfig = {
 
 // Initialize Firebase
 const app = getApps().length === 0 ? initializeApp(sdkConfig) : getApp();
-export const db = getFirestore(app, firestoreDatabaseId || '(default)'); /* CRITICAL: The app will break without this line */
+
+// Use initializeFirestore to configure robust long polling & transport layers
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+  ignoreUndefinedProperties: true
+}, firestoreDatabaseId || '(default)'); /* CRITICAL: The app will break without this line */
+
 export const auth = getAuth(app);
+
+// Enable robust multi-tab offline caching persistence for rich local fallbacks
+if (typeof window !== "undefined") {
+  enableMultiTabIndexedDbPersistence(db).catch((err) => {
+    console.warn("Firestore multi-tab persistence notification:", err);
+  });
+}
 
 // Structured Error Handling Block
 export enum OperationType {
