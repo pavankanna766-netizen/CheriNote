@@ -49,16 +49,25 @@ export default function App() {
         const stored = localStorage.getItem("cherinotes_authenticated_user");
         let parsed = stored ? JSON.parse(stored) : null;
         
+        let dbUser: UserProfile | null = null;
+        try {
+          dbUser = await AppDatabase.getUserProfile(firebaseUser.uid);
+        } catch (e) {
+          console.warn("Background user fetch failed:", e);
+        }
+
         const updatedUser: UserProfile = {
           uid: firebaseUser.uid,
-          name: firebaseUser.displayName || parsed?.name || firebaseUser.email?.split("@")[0].toUpperCase() || "Lover",
-          email: firebaseUser.email || parsed?.email || "",
-          photoUrl: firebaseUser.photoURL || parsed?.photoUrl || `https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=${encodeURIComponent(firebaseUser.uid)}`,
-          mobileNumber: parsed?.mobileNumber || undefined,
-          isPro: parsed?.isPro || false,
-          activePlan: parsed?.activePlan || "none",
-          unlockedTemplates: parsed?.unlockedTemplates || [],
-          bio: parsed?.bio || ""
+          name: firebaseUser.displayName || dbUser?.name || parsed?.name || firebaseUser.email?.split("@")[0].toUpperCase() || "Lover",
+          email: firebaseUser.email || dbUser?.email || parsed?.email || "",
+          photoUrl: firebaseUser.photoURL || dbUser?.photoUrl || parsed?.photoUrl || `https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=${encodeURIComponent(firebaseUser.uid)}`,
+          mobileNumber: dbUser?.mobileNumber || parsed?.mobileNumber || undefined,
+          isPro: dbUser?.isPro || parsed?.isPro || false,
+          activePlan: dbUser?.activePlan || parsed?.activePlan || "none",
+          unlockedTemplates: dbUser?.unlockedTemplates || parsed?.unlockedTemplates || [],
+          bio: dbUser?.bio || parsed?.bio || "",
+          gender: dbUser?.gender || parsed?.gender || undefined,
+          isVerified: dbUser?.isVerified || parsed?.isVerified || false
         };
         setUser(updatedUser);
         
@@ -359,6 +368,12 @@ export default function App() {
             className="p-3 text-left hover:bg-surface-container rounded-xl transition font-black text-secondary"
           >
             Lover Arcade 🏮
+          </button>
+          <button 
+            onClick={() => { setActiveView("connect-space"); setMobileMenuOpen(false); }} 
+            className="p-3 text-left hover:bg-surface-container rounded-xl transition font-black text-secondary"
+          >
+            Connect Space 💞
           </button>
           <button 
             onClick={() => { setActiveView("ai-companion"); setMobileMenuOpen(false); }} 

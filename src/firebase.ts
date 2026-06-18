@@ -448,6 +448,18 @@ export class AppDatabase {
     }
   }
 
+  static async getUserProfile(uid: string): Promise<UserProfile | null> {
+    try {
+      const docSnap = await getDoc(doc(db, "users", uid));
+      if (docSnap.exists()) {
+        return docSnap.data() as UserProfile;
+      }
+    } catch (e) {
+      console.warn("Firestore getUserProfile failed:", e);
+    }
+    return null;
+  }
+
   static async updateUserBio(uid: string, bio: string): Promise<void> {
     try {
       const stored = localStorage.getItem("cherinotes_authenticated_user");

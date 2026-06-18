@@ -29,9 +29,9 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user }) => {
         
         const availableCandidates = allUsers.filter(u => {
           if (u.uid === user.uid) return false;
-          if (!u.gender) return false; // candidate must have a gender defined
           
           if (matchPreference === "opposite") {
+            if (!u.gender || !user.gender) return false; // Both must have gender for opposite match
             const userGender = (user.gender || "Female").trim().toLowerCase();
             const candGender = (u.gender || "Male").trim().toLowerCase();
             
@@ -44,7 +44,7 @@ export const ConnectSpacePage: React.FC<ConnectSpacePageProps> = ({ user }) => {
             // If user gender is non-binary/other, match anyone who isn't the same gender
             return candGender !== userGender;
           }
-          return true; // "everyone" preference matches any other gender
+          return true; // "everyone" preference matches any other users even if they have no gender defined
         });
 
         setCandidates(availableCandidates);
